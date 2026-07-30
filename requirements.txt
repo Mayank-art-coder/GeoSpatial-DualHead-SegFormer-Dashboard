@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+torch
+torchvision
+transformers
+albumentations
+rasterio
+geopandas
+shapely
+pillow
+numpy

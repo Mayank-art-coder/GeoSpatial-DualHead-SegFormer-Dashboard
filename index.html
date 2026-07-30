@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Survey Pipeline — Village Mapping</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+  :root {
+    --ink: #1a1d1a;
+    --paper: #f6f3ea;
+    --paper-dim: #ece7d8;
+    --forest: #3d5a45;
+    --forest-dim: #5c7a64;
+    --terracotta: #b5491a;
+    --slate: #7a8b99;
+    --gold: #c8962c;
+    --line: #d8d2bf;
+    --radius: 3px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    height: 100vh;
+  }
+
+  /* ===== SIDEBAR ===== */
+  .sidebar {
+    background: var(--paper);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .brand {
+    padding: 22px 20px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand .mark {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand .mark .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--forest); display: inline-block; }
+  .brand .sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--slate);
+    margin-top: 4px;
+    letter-spacing: 0.02em;
+  }
+
+  .upload-zone {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .upload-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 12px;
+    background: var(--paper-dim);
+    border-radius: var(--radius);
+    padding: 3px;
+  }
+  .upload-tab {
+    flex: 1;
+    text-align: center;
+    padding: 7px 0;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.03em;
+    border-radius: 2px;
+    cursor: pointer;
+    color: var(--slate);
+    transition: all 0.15s;
+  }
+  .upload-tab.active { background: var(--ink); color: var(--paper); }
+
+  .dropbox {
+    border: 1.5px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 22px 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropbox:hover, .dropbox.drag { border-color: var(--forest); background: rgba(61,90,69,0.04); }
+  .dropbox .icon { font-size: 22px; margin-bottom: 6px; opacity: 0.6; }
+  .dropbox .label { font-size: 13px; font-weight: 500; }
+  .dropbox .hint { font-size: 11px; color: var(--slate); margin-top: 4px; font-family: 'IBM Plex Mono', monospace; }
+  input[type=file] { display: none; }
+
+  .queue-header {
+    padding: 14px 20px 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--slate);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .queue-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+
+  .job-card {
+    margin: 8px 14px;
+    padding: 11px 13px;
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .job-card:hover { border-color: var(--forest-dim); }
+  .job-card.selected { border-color: var(--forest); box-shadow: 0 0 0 1px var(--forest); }
+
+  .job-card .row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .job-card .fname {
+    font-size: 12.5px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .job-card .kind-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    color: var(--slate);
+    flex-shrink: 0;
+  }
+  .job-card .status-row {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.queued { background: var(--slate); }
+  .status-dot.running { background: var(--gold); animation: pulse 1.4s infinite; }
+  .status-dot.done { background: var(--forest); }
+  .status-dot.failed { background: var(--terracotta); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .job-card .status-text {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--slate);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .progress-track {
+    height: 3px;
+    background: var(--paper-dim);
+    border-radius: 2px;
+    margin-top: 7px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--forest-dim);
+    transition: width 0.3s;
+  }
+
+  .empty-queue {
+    padding: 30px 20px;
+    text-align: center;
+    color: var(--slate);
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* ===== MAIN AREA ===== */
+  .main {
+    position: relative;
+    background: #e8e4d4;
+  }
+
+  #map { width: 100%; height: 100%; background: #e8e4d4; }
+
+  .no-selection {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--slate);
+  }
+  .no-selection .glyph {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    border: 1px solid var(--line);
+    padding: 14px 22px;
+    border-radius: var(--radius);
+    background: var(--paper);
+  }
+
+  .overlay-view {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #e8e4d4;
+    overflow: auto;
+    padding: 30px;
+  }
+  .overlay-view img {
+    max-width: 100%;
+    max-height: 100%;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+    border-radius: 2px;
+  }
+
+  /* Layer panel */
+  .layer-panel {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: rgba(246,243,234,0.96);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    z-index: 500;
+    min-width: 190px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  .layer-panel .title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--slate);
+    margin-bottom: 9px;
+  }
+  .layer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .layer-row input { accent-color: var(--forest); cursor: pointer; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .layer-row .count {
+    margin-left: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--slate);
+  }
+
+  .view-toggle {
+    display: flex;
+    gap: 2px;
+    background: var(--paper-dim);
+    border-radius: 3px;
+    padding: 2px;
+    margin-bottom: 4px;
+  }
+  .view-tab {
+    flex: 1;
+    text-align: center;
+    padding: 6px 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+    border-radius: 2px;
+    cursor: pointer;
+    color: var(--slate);
+  }
+  .view-tab.active { background: var(--ink); color: var(--paper); }
+
+  /* Stats / download panel */
+  .info-panel {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    background: rgba(246,243,234,0.96);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 13px 15px;
+    z-index: 500;
+    min-width: 230px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  .info-panel .fname {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 8px;
+    word-break: break-all;
+  }
+  .stat-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11.5px;
+    padding: 2px 0;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .stat-line .v { color: var(--forest-dim); font-weight: 600; }
+
+  .dl-btn {
+    margin-top: 10px;
+    width: 100%;
+    padding: 8px 0;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.02em;
+  }
+  .dl-btn:hover { background: var(--forest); }
+  .dl-btn:disabled { background: var(--slate); cursor: not-allowed; }
+
+  .error-banner {
+    margin: 8px 14px;
+    padding: 9px 11px;
+    background: rgba(181,73,26,0.08);
+    border: 1px solid rgba(181,73,26,0.3);
+    border-radius: var(--radius);
+    font-size: 11.5px;
+    color: var(--terracotta);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .conn-status {
+    padding: 9px 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--slate);
+  }
+  .conn-status .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .conn-status .dot.ok { background: var(--forest); }
+  .conn-status .dot.bad { background: var(--terracotta); }
+
+  /* Flagged / low-confidence panel */
+  .flagged-panel {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: rgba(246,243,234,0.96);
+    border: 1px solid rgba(181,73,26,0.35);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    z-index: 500;
+    max-width: 270px;
+    max-height: 46vh;
+    overflow-y: auto;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  .flagged-panel .title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--terracotta);
+    margin-bottom: 9px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .flag-row {
+    padding: 7px 0;
+    border-top: 1px solid var(--line);
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .flag-row:first-of-type { border-top: none; }
+  .flag-row:hover { background: rgba(181,73,26,0.05); }
+  .flag-row .ftile {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .flag-row .fconf {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--terracotta);
+    margin-top: 2px;
+  }
+  .flag-row .fclasses {
+    font-size: 10px;
+    color: var(--slate);
+    margin-top: 2px;
+  }
+  .flagged-empty {
+    font-size: 11.5px;
+    color: var(--slate);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* ===== Floating chatbot ===== */
+  .chat-bubble {
+    position: fixed;
+    bottom: 22px;
+    right: 22px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--paper);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 900;
+    box-shadow: 0 3px 14px rgba(0,0,0,0.25);
+    transition: transform 0.15s, background 0.15s;
+  }
+  .chat-bubble:hover { background: var(--forest); transform: scale(1.06); }
+
+  .chat-window {
+    position: fixed;
+    bottom: 86px;
+    right: 22px;
+    width: 340px;
+    height: 440px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+    display: none;
+    flex-direction: column;
+    z-index: 900;
+    overflow: hidden;
+  }
+  .chat-window.open { display: flex; }
+
+  .chat-header {
+    padding: 12px 14px;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .chat-close { cursor: pointer; font-size: 18px; line-height: 1; opacity: 0.7; }
+  .chat-close:hover { opacity: 1; }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .chat-msg {
+    font-size: 12.5px;
+    line-height: 1.45;
+    padding: 8px 10px;
+    border-radius: 6px;
+    max-width: 88%;
+    white-space: pre-wrap;
+  }
+  .chat-msg.user {
+    background: var(--ink);
+    color: var(--paper);
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+  }
+  .chat-msg.bot {
+    background: var(--paper-dim);
+    color: var(--ink);
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+  }
+  .chat-msg.bot.error { color: var(--terracotta); }
+  .chat-msg.typing { color: var(--slate); font-style: italic; }
+
+  .chat-input-row {
+    display: flex;
+    border-top: 1px solid var(--line);
+    padding: 9px;
+    gap: 7px;
+  }
+  .chat-input-row input {
+    flex: 1;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 7px 9px;
+    font-size: 12.5px;
+    font-family: 'Inter', sans-serif;
+    outline: none;
+  }
+  .chat-input-row input:focus { border-color: var(--forest); }
+  .chat-input-row button {
+    width: 32px;
+    border: none;
+    border-radius: 4px;
+    background: var(--ink);
+    color: var(--paper);
+    cursor: pointer;
+    font-size: 15px;
+  }
+  .chat-input-row button:hover { background: var(--forest); }
+  .chat-input-row button:disabled { background: var(--slate); cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="brand">
+      <div class="mark"><span class="dot"></span>SURVEY PIPELINE</div>
+      <div class="sub">SEGFORMER-B3 // DUAL HEAD INFERENCE</div>
+    </div>
+
+    <div class="upload-zone">
+      <div class="upload-tabs">
+        <div class="upload-tab active" data-mode="tiff">GEOTIFF</div>
+        <div class="upload-tab" data-mode="png">PHOTO (PNG)</div>
+      </div>
+      <div class="dropbox" id="dropbox">
+        <div class="icon">⬆</div>
+        <div class="label" id="dropLabel">Drop GeoTIFF or click to browse</div>
+        <div class="hint" id="dropHint">.tif / .tiff — tiled, georeferenced, → GPKG</div>
+      </div>
+      <input type="file" id="fileInput" accept=".tif,.tiff">
+    </div>
+
+    <div class="queue-header">Queue &amp; History</div>
+    <div class="queue-list" id="queueList">
+      <div class="empty-queue">No jobs yet. Upload a file above.</div>
+    </div>
+
+    <div class="conn-status" id="connStatus">
+      <span class="dot bad"></span> connecting to backend...
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="no-selection" id="noSelection">
+      <div class="glyph">SELECT A JOB TO VIEW RESULT</div>
+    </div>
+    <div id="map" style="display:none;"></div>
+    <div class="overlay-view" id="overlayView" style="display:none;">
+      <img id="overlayImg" src="">
+    </div>
+
+    <div class="layer-panel" id="layerPanel" style="display:none;"></div>
+    <div class="info-panel" id="infoPanel" style="display:none;"></div>
+    <div class="flagged-panel" id="flaggedPanel" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- Floating chatbot -->
+<div class="chat-bubble" id="chatBubble">💬</div>
+<div class="chat-window" id="chatWindow">
+  <div class="chat-header">
+    <span>Pipeline Assistant <span style="color:var(--slate);font-weight:400;">— gemma3 + XAI</span></span>
+    <span class="chat-close" id="chatClose">×</span>
+  </div>
+  <div class="chat-messages" id="chatMessages">
+    <div class="chat-msg bot">Hi. Ask about detected features, confidence flags, or <b>why</b> the model classified something — e.g. "why did it detect buildings here?" and I'll run Integrated Gradients and show you the attention heatmap.</div>
+  </div>
+  <div class="chat-input-row">
+    <input type="text" id="chatInput" placeholder="Ask about this result...">
+    <button id="chatSend">→</button>
+  </div>
+</div>
+
+<script>
+const API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+  ? "http://localhost:8000"
+  : `http://${window.location.hostname}:8000`;
+// ^ If you open this page from another device on the LAN, it auto-targets
+//   the same host the page was loaded from, on port 8000. If your backend
+//   runs on a different machine/IP, hardcode it here, e.g.:
+//   const API_BASE = "http://192.168.1.42:8000";
+
+let uploadMode = "tiff";
+let selectedJobId = null;
+let pollTimer = null;
+let map = null;
+let layerGroups = {};
+let roofLayerGroups = {};    // roof_type -> Leaflet layer group
+let baseImageLayer = null;
+let flaggedMarkers = [];
+let flaggedMarkersLayer = null;   // single LayerGroup for all low-conf circles → togglable
+let lastRenderedJobId = null;
+let lastRenderedStatus = null;   // only redraw the result panel when status actually changes
+
+const LAYER_COLORS = {
+  buildings: "#b5491a",
+  roads: "#3d3d3d",
+  water: "#0082c8",
+  bridges: "#c8962c",
+  utilities: "#e6c700",
+};
+const LAYER_LABELS = {
+  buildings: "Buildings",
+  roads: "Roads",
+  water: "Water",
+  bridges: "Bridges",
+  utilities: "Utilities",
+};
+
+// Roof type colours — one per type id (1–5 covers most dual-head setups)
+const ROOF_TYPE_COLORS = {
+  1: "#e84393",  // Flat — pink
+  2: "#7c3aed",  // Gable — purple
+  3: "#0891b2",  // Hip — teal
+  4: "#16a34a",  // Shed — green
+  5: "#f97316",  // Complex — orange
+};
+const ROOF_TYPE_LABELS = {
+  1: "Roof-1",
+  2: "Roof-2",
+  3: "Roof-3",
+  4: "Roof-4",
+  5: "Roof-5",
+};
+
+// ---------- Upload tabs ----------
+document.querySelectorAll(".upload-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".upload-tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    uploadMode = tab.dataset.mode;
+    const dropLabel = document.getElementById("dropLabel");
+    const dropHint = document.getElementById("dropHint");
+    const fileInput = document.getElementById("fileInput");
+    if (uploadMode === "tiff") {
+      dropLabel.textContent = "Drop GeoTIFF or click to browse";
+      dropHint.textContent = ".tif / .tiff — tiled, georeferenced, → GPKG";
+      fileInput.accept = ".tif,.tiff";
+    } else {
+      dropLabel.textContent = "Drop photo or click to browse";
+      dropHint.textContent = ".png / .jpg — mask layered on photo, no geo-reference";
+      fileInput.accept = ".png,.jpg,.jpeg";
+    }
+  });
+});
+
+// ---------- Dropbox ----------
+const dropbox = document.getElementById("dropbox");
+const fileInput = document.getElementById("fileInput");
+dropbox.addEventListener("click", () => fileInput.click());
+dropbox.addEventListener("dragover", e => { e.preventDefault(); dropbox.classList.add("drag"); });
+dropbox.addEventListener("dragleave", () => dropbox.classList.remove("drag"));
+dropbox.addEventListener("drop", e => {
+  e.preventDefault();
+  dropbox.classList.remove("drag");
+  if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", e => {
+  if (e.target.files.length) handleUpload(e.target.files[0]);
+});
+
+async function handleUpload(file) {
+  const endpoint = uploadMode === "tiff" ? "/upload/tiff" : "/upload/png";
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const res = await fetch(API_BASE + endpoint, { method: "POST", body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({detail: res.statusText}));
+      alert("Upload failed: " + (err.detail || res.statusText));
+      return;
+    }
+    const data = await res.json();
+    selectedJobId = data.job_id;
+    refreshQueue();
+  } catch (e) {
+    alert("Could not reach backend at " + API_BASE + ". Is it running?");
+  }
+  fileInput.value = "";
+}
+
+// ---------- Queue polling ----------
+async function refreshQueue() {
+  try {
+    const res = await fetch(API_BASE + "/jobs");
+    const jobs = await res.json();
+    renderQueue(jobs);
+    setConn(true);
+  } catch (e) {
+    setConn(false);
+  }
+}
+
+function setConn(ok) {
+  const el = document.getElementById("connStatus");
+  el.innerHTML = ok
+    ? `<span class="dot ok"></span> backend connected — ${API_BASE}`
+    : `<span class="dot bad"></span> backend unreachable — ${API_BASE}`;
+}
+
+let lastQueueHTML = "";
+
+function renderQueue(jobs) {
+  const list = document.getElementById("queueList");
+  if (!jobs.length) {
+    const html = `<div class="empty-queue">No jobs yet. Upload a file above.</div>`;
+    if (html !== lastQueueHTML) { list.innerHTML = html; lastQueueHTML = html; }
+    return;
+  }
+  const html = jobs.map(j => {
+    const dotClass = j.status === "done" ? "done" : j.status === "failed" ? "failed"
+      : j.status === "queued" ? "queued" : "running";
+    const selectedClass = j.id === selectedJobId ? "selected" : "";
+    const flagBadge = (j.flagged_tiles && j.flagged_tiles.length)
+      ? `<span style="color:var(--terracotta);font-family:'IBM Plex Mono',monospace;font-size:9.5px;">⚠ ${j.flagged_tiles.length}</span>` : "";
+    return `
+      <div class="job-card ${selectedClass}" data-id="${j.id}">
+        <div class="row1">
+          <div class="fname" title="${j.filename}">${j.filename}</div>
+          <div class="kind-tag">${flagBadge} ${j.kind}</div>
+        </div>
+        <div class="status-row">
+          <span class="status-dot ${dotClass}"></span>
+          <span class="status-text">${j.message}</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="width:${j.progress}%"></div></div>
+        ${j.error ? `<div class="error-banner">${j.error}</div>` : ""}
+      </div>
+    `;
+  }).join("");
+
+  // Only touch the DOM if something actually changed — this is what stops the flicker.
+  if (html === lastQueueHTML) return;
+  lastQueueHTML = html;
+
+  list.innerHTML = html;
+  list.querySelectorAll(".job-card").forEach(card => {
+    card.addEventListener("click", () => selectJob(card.dataset.id));
+  });
+}
+
+function selectJob(id) {
+  selectedJobId = id;
+  lastRenderedJobId = null;   // force a fresh render — user explicitly switched jobs
+  lastRenderedStatus = null;
+  refreshQueue();
+  loadJobResult(id);
+}
+
+async function loadJobResult(id) {
+  const res = await fetch(API_BASE + "/jobs/" + id);
+  if (!res.ok) return;
+  const job = await res.json();
+
+  // Blink fix: only touch the DOM/map when something meaningful changed —
+  // either we switched jobs, or this job's status changed since last check.
+  const statusKey = job.id + ":" + job.status + ":" + job.progress;
+  if (lastRenderedJobId === id && lastRenderedStatus === statusKey) {
+    return; // nothing new — skip re-render entirely, this is what stops the flashing
+  }
+  lastRenderedJobId = id;
+  lastRenderedStatus = statusKey;
+
+  document.getElementById("noSelection").style.display = "none";
+
+  if (job.status !== "done") {
+    document.getElementById("map").style.display = "none";
+    document.getElementById("overlayView").style.display = "none";
+    document.getElementById("layerPanel").style.display = "none";
+    document.getElementById("infoPanel").style.display = "none";
+    document.getElementById("flaggedPanel").style.display = "none";
+    document.getElementById("noSelection").style.display = "flex";
+    document.getElementById("noSelection").querySelector(".glyph").textContent =
+      job.status === "failed" ? "JOB FAILED — SEE QUEUE FOR DETAILS" : "PROCESSING — " + job.message.toUpperCase();
+    return;
+  }
+
+  if (job.kind === "tiff" && job.has_gpkg) {
+    await showMapResult(job);
+  } else if (job.kind === "png" && job.has_overlay) {
+    showOverlayResult(job);
+  }
+}
+
+let viewMode = "overlay";  // "overlay" = image + inference, "pure" = inference only (old behavior)
+
+async function showMapResult(job) {
+  document.getElementById("overlayView").style.display = "none";
+  document.getElementById("map").style.display = "block";
+
+  if (!map) {
+    map = L.map("map", { zoomControl: true });
+    L.control.scale().addTo(map);
+  }
+  Object.values(layerGroups).forEach(g => map.removeLayer(g));
+  layerGroups = {};
+  Object.values(roofLayerGroups).forEach(g => map.removeLayer(g));
+  roofLayerGroups = {};
+  flaggedMarkers.forEach(m => map.removeLayer(m));
+  flaggedMarkers = [];
+  if (flaggedMarkersLayer) { map.removeLayer(flaggedMarkersLayer); flaggedMarkersLayer = null; }
+  if (baseImageLayer) { map.removeLayer(baseImageLayer); baseImageLayer = null; }
+
+  if (job.has_base_image && job.base_image_bounds && viewMode === "overlay") {
+    baseImageLayer = L.imageOverlay(
+      API_BASE + "/jobs/" + job.id + "/base_image",
+      job.base_image_bounds,
+      { opacity: 1.0 }
+    );
+    baseImageLayer.addTo(map);
+    baseImageLayer.bringToBack();
+  }
+
+  map.getContainer().style.background = viewMode === "pure" ? "#1a1d1a" : "#e8e4d4";
+
+  const res = await fetch(API_BASE + "/jobs/" + job.id + "/geojson");
+  const geojsonLayers = await res.json();
+
+  let bounds = (job.has_base_image && job.base_image_bounds && viewMode === "overlay") ? L.latLngBounds(job.base_image_bounds) : null;
+  for (const [layer, fc] of Object.entries(geojsonLayers)) {
+    if (!fc.features.length) continue;
+    const color = LAYER_COLORS[layer] || "#666";
+    const gLayer = L.geoJSON(fc, {
+      style: {
+        color: "#ffffff", weight: 1, opacity: 0.9,
+        fillColor: color, fillOpacity: viewMode === "overlay" ? 0.75 : 0.85,
+      },
+      onEachFeature: (feature, lyr) => {
+        const props = feature.properties || {};
+        const html = Object.entries(props).map(([k, v]) => `<b>${k}</b>: ${v}`).join("<br>");
+        lyr.bindPopup(html);
+      },
+    });
+    layerGroups[layer] = gLayer;
+    gLayer.addTo(map);
+    gLayer.bringToFront();
+    const b = gLayer.getBounds();
+    if (b.isValid()) bounds = bounds ? bounds.extend(b) : b;
+  }
+
+  // Roof type layers — built from buildings features, grouped by roof_type
+  const buildingsFC = geojsonLayers["buildings"];
+  if (buildingsFC && buildingsFC.features.length) {
+    // Group features by roof_type
+    const byRoof = {};
+    buildingsFC.features.forEach(f => {
+      const rt = f.properties?.roof_type;
+      if (rt && rt > 0) {
+        if (!byRoof[rt]) byRoof[rt] = { type: "FeatureCollection", features: [] };
+        byRoof[rt].features.push(f);
+      }
+    });
+    Object.entries(byRoof).forEach(([rtStr, fc]) => {
+      const rt = parseInt(rtStr);
+      const color = ROOF_TYPE_COLORS[rt] || "#aaa";
+      const rLayer = L.geoJSON(fc, {
+        style: {
+          color: "#ffffff", weight: 1, opacity: 0.85,
+          fillColor: color, fillOpacity: viewMode === "overlay" ? 0.8 : 0.9,
+        },
+        onEachFeature: (feature, lyr) => {
+          const props = feature.properties || {};
+          const html = `<b>Roof type ${rt}: ${ROOF_TYPE_LABELS[rt] || rt}</b><br>` +
+            Object.entries(props).map(([k, v]) => `<b>${k}</b>: ${v}`).join("<br>");
+          lyr.bindPopup(html);
+        },
+      });
+      roofLayerGroups[rt] = rLayer;
+      // Roof layers OFF by default — user turns on from panel
+    });
+  }
+
+  // Low-confidence tile markers — put in a single LayerGroup for toggling
+  const flaggedFeatures = (job.flagged_tiles || []).filter(ft => ft.center);
+  flaggedMarkersLayer = L.layerGroup();
+  flaggedFeatures.forEach(ft => {
+    const marker = L.circleMarker(ft.center, {
+      radius: 9, color: "#b5491a", weight: 2, fillColor: "#b5491a", fillOpacity: 0.25,
+    }).bindPopup(
+      `<b>⚠ Low confidence</b><br>Tile: ${ft.tile}<br>Mean confidence: ${(ft.mean_confidence*100).toFixed(1)}%`
+    );
+    flaggedMarkers.push(marker);
+    marker.addTo(flaggedMarkersLayer);
+  });
+  flaggedMarkersLayer.addTo(map);   // visible by default
+
+  if (bounds) map.fitBounds(bounds, { padding: [20,20] });
+  else map.setView([0,0], 2);
+
+  renderLayerPanel(job, geojsonLayers);
+  renderInfoPanel(job);
+  renderFlaggedPanel(job);
+}
+
+function renderLayerPanel(job, geojsonLayers) {
+  const panel = document.getElementById("layerPanel");
+  panel.style.display = "block";
+
+  const viewToggle = job.has_base_image ? `
+      <div class="view-toggle">
+        <div class="view-tab ${viewMode === 'overlay' ? 'active' : ''}" data-mode="overlay">Image + Inference</div>
+        <div class="view-tab ${viewMode === 'pure' ? 'active' : ''}" data-mode="pure">Inference Only</div>
+      </div>
+  ` : "";
+
+  // Main feature layers
+  const mainLayersHTML = Object.keys(LAYER_LABELS).map(layer => {
+    const count = job.stats?.[layer]?.count ?? (geojsonLayers[layer]?.features?.length ?? 0);
+    const checked = layerGroups[layer] ? "checked" : "";
+    return `
+      <label class="layer-row">
+        <input type="checkbox" ${checked} data-layer="${layer}">
+        <span class="swatch" style="background:${LAYER_COLORS[layer]}"></span>
+        ${LAYER_LABELS[layer]}
+        <span class="count">${count}</span>
+      </label>
+    `;
+  }).join("");
+
+  // Flagged circles toggle
+  const hasFlagged = (job.flagged_tiles || []).filter(ft => ft.center).length > 0;
+  const flaggedToggleHTML = hasFlagged ? `
+    <div class="title" style="margin-top:10px;">Annotations</div>
+    <label class="layer-row">
+      <input type="checkbox" checked id="flaggedCirclesToggle">
+      <span class="swatch" style="background:#b5491a;border-radius:50%;"></span>
+      Low-conf circles
+      <span class="count">${(job.flagged_tiles||[]).filter(ft=>ft.center).length}</span>
+    </label>
+  ` : "";
+
+  // Roof type layers (only if any roof groups were built)
+  const roofKeys = Object.keys(roofLayerGroups).map(Number).sort();
+  const roofLayersHTML = roofKeys.length ? `
+    <div class="title" style="margin-top:10px;">Roof Types</div>
+    ${roofKeys.map(rt => `
+      <label class="layer-row">
+        <input type="checkbox" data-roof="${rt}">
+        <span class="swatch" style="background:${ROOF_TYPE_COLORS[rt]||'#aaa'}"></span>
+        ${rt}. ${ROOF_TYPE_LABELS[rt] || "Type " + rt}
+        <span class="count">${roofLayerGroups[rt].getLayers ? roofLayerGroups[rt].getLayers().length : ""}</span>
+      </label>
+    `).join("")}
+  ` : "";
+
+  panel.innerHTML = `<div class="title">View</div>` + viewToggle +
+    `<div class="title" style="margin-top:10px;">Layers</div>` + mainLayersHTML +
+    flaggedToggleHTML + roofLayersHTML;
+
+  // Feature layer toggles
+  panel.querySelectorAll("input[data-layer]").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const layer = cb.dataset.layer;
+      const gLayer = layerGroups[layer];
+      if (!gLayer) return;
+      if (cb.checked) gLayer.addTo(map);
+      else map.removeLayer(gLayer);
+    });
+  });
+
+  // Flagged circles toggle
+  const flaggedCb = panel.querySelector("#flaggedCirclesToggle");
+  if (flaggedCb) {
+    flaggedCb.addEventListener("change", () => {
+      if (!flaggedMarkersLayer) return;
+      if (flaggedCb.checked) flaggedMarkersLayer.addTo(map);
+      else map.removeLayer(flaggedMarkersLayer);
+    });
+  }
+
+  // Roof type toggles
+  panel.querySelectorAll("input[data-roof]").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const rt = parseInt(cb.dataset.roof);
+      const rLayer = roofLayerGroups[rt];
+      if (!rLayer) return;
+      if (cb.checked) { rLayer.addTo(map); rLayer.bringToFront(); }
+      else map.removeLayer(rLayer);
+    });
+  });
+
+  // View mode tabs
+  panel.querySelectorAll(".view-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      if (tab.dataset.mode === viewMode) return;
+      viewMode = tab.dataset.mode;
+      showMapResult(job);
+    });
+  });
+}
+
+function renderFlaggedPanel(job) {
+  const panel = document.getElementById("flaggedPanel");
+  const flagged = job.flagged_tiles || [];
+
+  if (!flagged.length) {
+    panel.style.display = "none";
+    return;
+  }
+
+  panel.style.display = "block";
+  const dlBtn = job.has_flagged_zip ? `
+      <button class="dl-btn" style="margin-bottom:8px;" onclick="window.open('${API_BASE}/jobs/${job.id}/flagged_tiles_zip','_blank')">
+        ⬇ Download all ${flagged.length} flagged tiles (.zip)
+      </button>
+  ` : "";
+  panel.innerHTML = `<div class="title">⚠ Review needed (${flagged.length})</div>` + dlBtn +
+    flagged.map((ft, i) => {
+      const classesStr = Object.entries(ft.per_class || {})
+        .map(([cls, conf]) => `${cls} ${(conf*100).toFixed(0)}%`).join(", ");
+      return `
+        <div class="flag-row" data-idx="${i}">
+          <div class="ftile">${ft.tile}</div>
+          <div class="fconf">mean confidence: ${(ft.mean_confidence*100).toFixed(1)}%</div>
+          ${classesStr ? `<div class="fclasses">${classesStr}</div>` : ""}
+        </div>
+      `;
+    }).join("");
+
+  panel.querySelectorAll(".flag-row").forEach(row => {
+    row.addEventListener("click", () => {
+      const ft = flagged[parseInt(row.dataset.idx)];
+      if (ft.center && map) {
+        map.setView(ft.center, Math.max(map.getZoom(), 17));
+        flaggedMarkers.forEach(m => {
+          const ll = m.getLatLng();
+          if (Math.abs(ll.lat - ft.center[0]) < 1e-9 && Math.abs(ll.lng - ft.center[1]) < 1e-9) {
+            m.openPopup();
+          }
+        });
+      }
+    });
+  });
+}
+
+function renderInfoPanel(job) {
+  const panel = document.getElementById("infoPanel");
+  panel.style.display = "block";
+  const statLines = Object.entries(job.stats || {}).map(([layer, s]) => `
+    <div class="stat-line"><span>${LAYER_LABELS[layer] || layer}</span><span class="v">${s.area_m2.toLocaleString(undefined,{maximumFractionDigits:0})} m²</span></div>
+  `).join("");
+  panel.innerHTML = `
+    <div class="fname">${job.filename}</div>
+    ${statLines}
+    <button class="dl-btn" onclick="window.open('${API_BASE}/jobs/${job.id}/gpkg','_blank')">⬇ Download GPKG (open in QGIS)</button>
+  `;
+}
+
+let pngViewMode = "overlay";  // "overlay" = mask on photo, "pure" = mask only, no photo
+
+function showOverlayResult(job) {
+  document.getElementById("map").style.display = "none";
+  document.getElementById("layerPanel").style.display = "block";
+
+  document.getElementById("overlayView").style.display = "flex";
+  const imgEl = document.getElementById("overlayImg");
+  const endpoint = pngViewMode === "overlay" ? "/overlay" : "/mask_only";
+  imgEl.src = API_BASE + "/jobs/" + job.id + endpoint + "?t=" + Date.now();
+
+  // Reuse the layer panel slot to host the same View toggle as the TIFF map view
+  const layerPanel = document.getElementById("layerPanel");
+  layerPanel.innerHTML = `
+    <div class="title">View</div>
+    <div class="view-toggle">
+      <div class="view-tab png-view-tab ${pngViewMode === 'overlay' ? 'active' : ''}" data-mode="overlay">Image + Inference</div>
+      <div class="view-tab png-view-tab ${pngViewMode === 'pure' ? 'active' : ''}" data-mode="pure">Inference Only</div>
+    </div>
+  `;
+  layerPanel.querySelectorAll(".png-view-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      if (tab.dataset.mode === pngViewMode) return;
+      pngViewMode = tab.dataset.mode;
+      showOverlayResult(job);
+    });
+  });
+
+  const panel = document.getElementById("infoPanel");
+  panel.style.display = "block";
+  const statLines = Object.entries(job.stats || {}).map(([name, s]) => `
+    <div class="stat-line"><span>${name}</span><span class="v">${s.pixel_count.toLocaleString()} px</span></div>
+  `).join("");
+  const dlEndpoint = pngViewMode === "overlay" ? "overlay" : "mask_only";
+  panel.innerHTML = `
+    <div class="fname">${job.filename}</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--slate);margin-bottom:6px;">${pngViewMode === 'overlay' ? 'MASK LAYERED ON ORIGINAL PHOTO' : 'PURE INFERENCE — NO PHOTO'} — PIXEL COUNTS, NO GEO-REFERENCE</div>
+    ${statLines}
+    <button class="dl-btn" onclick="window.open('${API_BASE}/jobs/${job.id}/${dlEndpoint}','_blank')">⬇ Download this view</button>
+  `;
+
+  // Flagged panel for PNG path — no map, so just show the confidence note, no click-to-jump.
+  const flagPanel = document.getElementById("flaggedPanel");
+  const flagged = job.flagged_tiles || [];
+  if (flagged.length) {
+    flagPanel.style.display = "block";
+    const ft = flagged[0];
+    const classesStr = Object.entries(ft.per_class || {})
+      .map(([cls, conf]) => `${cls} ${(conf*100).toFixed(0)}%`).join(", ");
+    flagPanel.innerHTML = `
+      <div class="title">⚠ Low confidence detected</div>
+      <div class="flag-row" style="cursor:default;">
+        <div class="fconf">mean confidence: ${(ft.mean_confidence*100).toFixed(1)}%</div>
+        ${classesStr ? `<div class="fclasses">${classesStr}</div>` : ""}
+      </div>
+    `;
+  } else {
+    flagPanel.style.display = "none";
+  }
+}
+
+// ---------- Polling loop ----------
+setInterval(() => {
+  refreshQueue();
+  if (selectedJobId) loadJobResult(selectedJobId);
+}, 2000);
+
+refreshQueue();
+
+// ---------- Chatbot (local Ollama bridge) ----------
+let chatHistory = [];
+
+const chatBubble = document.getElementById("chatBubble");
+const chatWindow = document.getElementById("chatWindow");
+const chatClose = document.getElementById("chatClose");
+const chatMessages = document.getElementById("chatMessages");
+const chatInput = document.getElementById("chatInput");
+const chatSend = document.getElementById("chatSend");
+
+chatBubble.addEventListener("click", () => {
+  chatWindow.classList.toggle("open");
+  if (chatWindow.classList.contains("open")) chatInput.focus();
+});
+chatClose.addEventListener("click", () => chatWindow.classList.remove("open"));
+
+function appendChatMsg(role, text, isError = false) {
+  const div = document.createElement("div");
+  div.className = "chat-msg " + (role === "user" ? "user" : "bot") + (isError ? " error" : "");
+  div.textContent = text;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div;
+}
+
+async function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  chatInput.value = "";
+  chatSend.disabled = true;
+
+  appendChatMsg("user", text);
+  chatHistory.push({ role: "user", content: text });
+
+  const typingEl = document.createElement("div");
+  typingEl.className = "chat-msg bot typing";
+  typingEl.textContent = "thinking...";
+  chatMessages.appendChild(typingEl);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+
+  try {
+    const res = await fetch(API_BASE + "/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        job_id: selectedJobId,
+        history: chatHistory.slice(-10),
+      }),
+    });
+    typingEl.remove();
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      appendChatMsg("bot", "⚠ " + (err.detail || "Something went wrong."), true);
+      return;
+    }
+    const data = await res.json();
+    appendChatMsg("bot", data.reply);
+    chatHistory.push({ role: "assistant", content: data.reply });
+
+    // XAI: if the response includes a heatmap, show it inline in the chat
+    if (data.xai_heatmap_b64) {
+      const heatmapDiv = document.createElement("div");
+      heatmapDiv.className = "chat-msg bot";
+      heatmapDiv.style.cssText = "padding:6px;background:var(--paper-dim);";
+      heatmapDiv.innerHTML = `
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--slate);margin-bottom:5px;">
+          IG ATTRIBUTION — ${data.xai_tile || "tile"} (hot=high attention)
+        </div>
+        <img src="data:image/png;base64,${data.xai_heatmap_b64}"
+             style="width:100%;border-radius:3px;display:block;"
+             alt="Integrated Gradients heatmap">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--slate);margin-top:4px;">
+          white/yellow = model focused here · black = ignored
+        </div>
+      `;
+      chatMessages.appendChild(heatmapDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  } catch (e) {
+    typingEl.remove();
+    appendChatMsg("bot", "⚠ Could not reach backend at " + API_BASE + ".", true);
+  } finally {
+    chatSend.disabled = false;
+  }
+}
+
+chatSend.addEventListener("click", sendChatMessage);
+chatInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") sendChatMessage();
+});
+</script>
+
+</body>
+</html>
